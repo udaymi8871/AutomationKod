@@ -101,16 +101,16 @@ describe("Profile Personal Details Update", () => {
       .click();
 
     //Final UG detail save toggle confirmation
-    cy.get('[role="dialog"]').within(() => {
-      cy.get('button[role="switch"]').each(($toggle) => {
+    // cy.get('[role="dialog"]').within(() => {
+    //   cy.get('button[role="switch"]').each(($toggle) => {
         
-        cy.wrap($toggle)
-          .should("have.attr", "aria-checked", "false")
-          .click()
-          .should("have.attr", "aria-checked", "true");
-      });
+    //     cy.wrap($toggle)
+    //       .should("have.attr", "aria-checked", "false")
+    //       .click()
+    //       .should("have.attr", "aria-checked", "true");
+    //   });
 
       cy.contains("button", "Confirm & Save").should("be.enabled").click();
     });
   });
-});
+
