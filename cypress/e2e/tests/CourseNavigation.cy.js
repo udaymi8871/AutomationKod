@@ -26,14 +26,15 @@ describe('KodNest course flow', () => {
     // Wait for courses page to load
     cy.wait(2000);
 
-    // 4) Click View Syllabus using robust course card selector
-    // Find the course card first, then the button within it
-    cy.get('div[id^="course-item-"]', { timeout: 15000 })
+    // 4) Regression: click Completed tab, wait for list to load (API may take a moment), then click View Syllabus
+    cy.log('Clicking Completed tab – wait for list to load, then View Syllabus.');
+    cy.clickCompletedTab();
+    cy.wait(5000); // Allow completed list to load (API: tab=completed)
+    cy.contains('button', 'View Syllabus', { timeout: 20000 })
       .first()
-      .contains('button', 'View Syllabus')
       .scrollIntoView()
       .should('be.visible')
-      .click();
+      .click({ force: true });
 
     // Wait for syllabus to load - verify we navigated
     cy.url({ timeout: 15000 }).should('include', '/class/');
@@ -232,12 +233,12 @@ describe('KodNest course flow', () => {
 
     // Click Completed tab (selector: button or [role="tab"] with "Completed", or use cy.clickCompletedTab() in commands.js to override)
     cy.clickCompletedTab();
-    cy.wait(2000);
+    // Wait for completed course list to load (API may take a moment; "No courses found" can show briefly before list appears)
+    cy.wait(5000);
 
-    // Open View Syllabus on the completed course (first course card in Completed list)
-    cy.get('div[id^="course-item-"]', { timeout: 15000 })
+    // Open View Syllabus on the completed course (list may load after tab click; wait for View Syllabus button with long timeout)
+    cy.contains('button', 'View Syllabus', { timeout: 25000 })
       .first()
-      .contains('button', 'View Syllabus')
       .scrollIntoView()
       .should('be.visible')
       .click({ force: true });
