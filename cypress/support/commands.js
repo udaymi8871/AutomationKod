@@ -49,6 +49,23 @@ Cypress.Commands.add('clickNextButton', () => {
     });
 });
 
+// Reusable: click Completed tab (Courses page) for regression. Override selector in this command if your app uses a different one.
+Cypress.Commands.add('clickCompletedTab', () => {
+  cy.get('body').then(($body) => {
+    const $btn = $body.find('button').filter((i, el) => Cypress.$(el).text().trim().toLowerCase() === 'completed').first();
+    if ($btn.length) {
+      cy.wrap($btn).scrollIntoView().click({ force: true });
+      return;
+    }
+    const $tab = $body.find('[role="tab"]').filter((i, el) => Cypress.$(el).text().trim().toLowerCase().includes('completed')).first();
+    if ($tab.length) {
+      cy.wrap($tab).scrollIntoView().click({ force: true });
+      return;
+    }
+    cy.contains(/Completed/i, { timeout: 10000 }).scrollIntoView().click({ force: true });
+  });
+});
+
 // Custom command to handle programming challenge submission in Monaco editor
 // This command: clicks editor, clears boilerplate, types solution, runs, and submits
 // Parameters:
@@ -389,12 +406,11 @@ Cypress.Commands.add('submitCodeSolution', (solutionCode) => {
 // ============================================================================
 // MCQ QUESTION HANDLING COMMAND
 // ============================================================================
-// Handles MCQ screen with multiple selector strategies so we catch the
-// Practice/MCQ page even when #option-0 / #submit-button are not present.
-// Flow: Try option 1 -> Submit -> If Retake, try option 2, etc.
+// Flow: Select option -> Submit -> Check toast message (passed or not).
+// If not passed, click Retake and try next option until correct.
 // ============================================================================
 Cypress.Commands.add('handleMCQQuestion', () => {
-  cy.log('Handling MCQ - using ID and fallback selectors for options and Submit...');
+  cy.log('Handling MCQ subtopic: select option -> submit -> check toast (passed/not) -> retake and try next until correct. (Only some subtopics are MCQ; next subtopic if MCQ type uses same flow.)');
 
   // Helper: get Submit button (by ID or by text "Submit", excluding "Submit Code")
   const getSubmitButton = ($body) => {
@@ -414,7 +430,22 @@ Cypress.Commands.add('handleMCQQuestion', () => {
     return $body.find('button').filter((i, el) => Cypress.$(el).text().trim().toLowerCase().includes('retake')).first();
   };
 
-  // Helper: find option elements - by ID, data-option, or option-like buttons in content area
+  // Helper: check if toast/snackbar says PASSED (correct, success, etc.)
+  const toastSaysPassed = ($body) => {
+    const text = $body.text();
+    const lower = text.toLowerCase();
+    const passedWords = ['correct', 'passed', 'success', 'right answer', 'well done', 'congratulations'];
+    return passedWords.some((word) => lower.includes(word));
+  };
+
+  // Helper: check if toast/snackbar says NOT PASSED (incorrect, wrong, etc.)
+  const toastSaysNotPassed = ($body) => {
+    const lower = $body.text().toLowerCase();
+    const notPassedWords = ['incorrect', 'wrong', 'try again', 'retake', 'not correct', 'failed'];
+    return notPassedWords.some((word) => lower.includes(word));
+  };
+
+  // Helper: find option elements - by ID, data-option, buttons, or clickable option-like elements (e.g. "on", "in", "under", "over")
   const getOptionElements = ($body) => {
     if ($body.find('#option-0').length > 0) {
       const list = [];
@@ -429,11 +460,20 @@ Cypress.Commands.add('handleMCQQuestion', () => {
       const $container = $submit.closest('div[class*="content"], div[class*="practice"], main, [role="main"], form').length
         ? $submit.closest('div[class*="content"], div[class*="practice"], main, [role="main"], form')
         : $submit.parent();
+      const exclude = ['submit', 'back', 'next'];
       const $btns = $container.find('button').filter((i, el) => {
         const t = Cypress.$(el).text().trim().toLowerCase();
-        return !['submit', 'back', 'next'].includes(t) && Cypress.$(el).is(':visible');
+        return !exclude.includes(t) && Cypress.$(el).is(':visible');
       });
       if ($btns.length >= 2) return $btns;
+      // Fallback: clickable option-like elements (div/span with short text, e.g. "on", "in", "under", "over")
+      const $clickables = $container.find('[role="button"], [role="radio"], [role="option"], div[class*="option"], button, [data-option]').filter((i, el) => {
+        const $el = Cypress.$(el);
+        const t = $el.text().trim().toLowerCase();
+        const isExcluded = exclude.includes(t) || t.length > 80;
+        return $el.is(':visible') && !isExcluded && t.length >= 1;
+      });
+      if ($clickables.length >= 2) return $clickables;
     }
     if ($body.find('[data-option]').length > 0) {
       return $body.find('[data-option]');
@@ -446,7 +486,7 @@ Cypress.Commands.add('handleMCQQuestion', () => {
     const optionCount = $opts.length;
     const $submitBtn = getSubmitButton($body);
 
-    cy.log(`MCQ options found: ${optionCount} (by ID or fallback). Submit button: ${$submitBtn.length ? 'yes' : 'no'}`);
+    cy.log(`MCQ options found: ${optionCount}. Submit button: ${$submitBtn.length ? 'yes' : 'no'}`);
 
     if (optionCount === 0 || !$submitBtn.length) {
       cy.log('⚠️ No MCQ options or Submit button found. Skipping MCQ logic.');
@@ -471,25 +511,40 @@ Cypress.Commands.add('handleMCQQuestion', () => {
         }
       });
 
-      cy.wait(1000);
+      // Wait for selection to register (Submit may be disabled until option is selected)
+      cy.wait(1500);
 
       cy.get('body').then(($b) => {
         const $sub = getSubmitButton($b);
-        if ($sub.length) cy.wrap($sub).scrollIntoView().click({ force: true });
-        else cy.get('#submit-button', { timeout: 5000 }).click({ force: true });
+        if ($sub.length) {
+          cy.wrap($sub).scrollIntoView().should('be.visible').click({ force: true });
+        } else {
+          cy.get('#submit-button', { timeout: 5000 }).click({ force: true });
+        }
       });
 
-      cy.wait(2000);
+      // Wait for toast message to appear after submit
+      cy.wait(2500);
 
+      // Check toast message: passed or not (then Retake and try next if not passed)
       cy.get('body').then(($b) => {
+        const passedByToast = toastSaysPassed($b);
+        const notPassedByToast = toastSaysNotPassed($b);
         const $retake = getRetakeButton($b);
-        if ($retake.length) {
-          cy.log(`❌ Option ${index + 1} was WRONG. Clicking Retake...`);
-          cy.wrap($retake).scrollIntoView().click({ force: true });
+
+        if (passedByToast) {
+          cy.log(`✅ Option ${index + 1} PASSED (toast: passed).`);
+          return;
+        }
+        if (notPassedByToast || $retake.length) {
+          cy.log(`❌ Option ${index + 1} NOT passed (toast or Retake). Clicking Retake...`);
+          if ($retake.length) {
+            cy.wrap($retake).scrollIntoView().click({ force: true });
+          }
           cy.wait(2000);
           tryOption(index + 1);
         } else {
-          cy.log(`✅ Option ${index + 1} PASSED (no Retake button).`);
+          cy.log(`✅ Option ${index + 1} assumed PASSED (no fail toast, no Retake).`);
         }
       });
     };

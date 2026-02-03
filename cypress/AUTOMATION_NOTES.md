@@ -5,7 +5,7 @@
 - **Login** → **Courses** → **View Syllabus** → **Start course** (Continue or Module/Topic/Subtopic).
 - **Linear navigation**: Next through content; detects **code challenges** (Monaco), **MCQ/Practice**, and **Finish**.
 - **Code challenges**: Uses `solutionCode.json` (javaSolution, javaSolution2, javaSolution3).
-- **MCQ**: Tries options in order; if wrong, clicks Retake and tries next option until correct.
+- **MCQ** (only some subtopics have MCQ; next subtopic can also be MCQ type): For each MCQ subtopic: select option → submit → check **toast message** (passed or not). If not passed, click Retake and try next option until the toast says passed. Same flow whenever we land on an MCQ subtopic (including when the next subtopic is also MCQ).
 
 ## Best approach used
 
@@ -22,6 +22,14 @@
 - **Environment URL** – If you add a staging/test base URL, we can switch to it via `baseUrl` in `cypress.config.js` instead of hardcoding.
 
 None of these are required for the current automation to run; they would make it easier to maintain and extend.
+
+## Regression flow (after first course completion)
+
+1. Go back to **Courses**.
+2. Click **Completed** tab (selector: `button` or `[role="tab"]` with text "Completed"; override in `cy.clickCompletedTab()` in `commands.js` if your app uses a different locator).
+3. Click **View Syllabus** on the first completed course card.
+4. Start course again (Continue or Module → Topic → Subtopic).
+5. Run the full navigation again: Next through every subtopic, handle code challenges and MCQ, until Finish (complete course again for regression).
 
 ## Run
 

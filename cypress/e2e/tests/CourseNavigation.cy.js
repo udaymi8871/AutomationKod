@@ -178,8 +178,8 @@ describe('KodNest course flow', () => {
 
           cy.wait(2000);
         } else if (hasMCQOptions && hasMCQSubmitButton) {
-          // MCQ question detected (by ID or by Practice + Submit button)
-          cy.log('Detected MCQ / Practice screen...');
+          // Only some subtopics have MCQ. When this subtopic is MCQ (or next subtopic is also MCQ type), handle it: select option → submit → check toast (passed/not) → retake and try next option until correct
+          cy.log('Detected MCQ subtopic - handling: select → submit → toast → retake until correct (next subtopic if MCQ type will be handled same way)...');
 
           // Wait for MCQ UI to be ready (Submit button or options visible)
           cy.get('body').then(($b) => {
@@ -190,17 +190,10 @@ describe('KodNest course flow', () => {
             }
           });
 
-          // CHECK IF ALREADY SUBMITTED (by ID or by text "Submit")
-          cy.get('body').then(($b) => {
-            const $btn = $b.find('#submit-button').length ? $b.find('#submit-button') : $b.find('button').filter((i, el) => Cypress.$(el).text().trim().toLowerCase() === 'submit');
-            if ($btn.length && $btn.is(':disabled')) {
-              cy.log('MCQ Submit button disabled - Already submitted. Proceeding...');
-            } else if ($btn.length) {
-              cy.log('MCQ Submit button enabled - Handling MCQ...');
-              cy.handleMCQQuestion();
-              cy.wait(2000);
-            }
-          });
+          // Always run option-by-option flow: select one option → submit → check toast (passed/not) → if not correct, retake and try next option until correct (Submit may be disabled until an option is selected)
+          cy.log('Handling MCQ: try options one by one, submit each, check toast until correct...');
+          cy.handleMCQQuestion();
+          cy.wait(2000);
 
           // Click Next button after MCQ
           cy.clickNextButton();
@@ -227,5 +220,128 @@ describe('KodNest course flow', () => {
         }
       });
     }
+
+    // ========== REGRESSION: Course completed – go to Completed tab, View Syllabus, run full course again ==========
+    cy.log('Course completed. Starting regression: Completed tab → View Syllabus → complete all subtopics again.');
+
+    // Go back to Courses (to see Completed tab)
+    cy.contains('Courses', { matchCase: false }, { timeout: 15000 })
+      .should('be.visible')
+      .click();
+    cy.wait(2000);
+
+    // Click Completed tab (selector: button or [role="tab"] with "Completed", or use cy.clickCompletedTab() in commands.js to override)
+    cy.clickCompletedTab();
+    cy.wait(2000);
+
+    // Open View Syllabus on the completed course (first course card in Completed list)
+    cy.get('div[id^="course-item-"]', { timeout: 15000 })
+      .first()
+      .contains('button', 'View Syllabus')
+      .scrollIntoView()
+      .should('be.visible')
+      .click({ force: true });
+    cy.url({ timeout: 15000 }).should('include', '/class/');
+    cy.wait(3000);
+
+    // Start course again (Continue or Module → Topic → Subtopic)
+    cy.get('body').then(($body) => {
+      const hasContinueBtn = $body.find('button').filter((i, el) => {
+        const text = Cypress.$(el).text().trim();
+        return text === 'Continue' || text === 'Start Course';
+      }).length > 0;
+
+      if (hasContinueBtn) {
+        cy.contains('button', /Continue|Start Course/i, { timeout: 10000 }).should('be.visible').click({ force: true });
+        cy.wait(3000);
+      } else {
+        cy.get('button[id^="module-toggle-"]', { timeout: 10000 }).first().scrollIntoView().click({ force: true });
+        cy.wait(1000);
+        cy.get('body').then(($b2) => {
+          if ($b2.find('button[id^="topic-toggle-"]').length > 0) {
+            cy.get('button[id^="topic-toggle-"]').first().scrollIntoView().click({ force: true });
+            cy.wait(1000);
+          }
+          cy.get('button[id^="subtopic-button-"]', { timeout: 10000 }).first().scrollIntoView().click({ force: true });
+          cy.wait(3000);
+        });
+      }
+    });
+
+    // Wait for Next button and run full navigation loop again (regression)
+    cy.get('#next-button', { timeout: 15000 }).should('be.visible');
+
+    let regressionProgrammingCount = 0;
+    for (let r = 0; r < 100; r++) {
+      cy.log(`Regression navigation iteration ${r + 1}`);
+
+      cy.get('body').then(($body) => {
+        const hasMonacoEditor = $body.find('.view-lines.monaco-mouse-cursor-text').length > 0;
+        const hasRunButton = $body.find('#run-code-btn').length > 0;
+        const hasSubmitCodeButton = $body.find('#submit-code-btn').length > 0;
+
+        const hasOptionById = $body.find('#option-0').length > 0;
+        const hasSubmitById = $body.find('#submit-button').length > 0;
+        const win = $body[0]?.ownerDocument?.defaultView;
+        const currentUrl = (win && win.location && win.location.href) ? win.location.href : '';
+        const isOnClassPage = currentUrl.includes('/my-learning/class/');
+        const hasPracticeLabel = $body.text().includes('Practice');
+        const submitBtnByText = $body.find('button').filter((i, el) => {
+          const t = Cypress.$(el).text().trim().toLowerCase();
+          return t === 'submit' && !Cypress.$(el).closest('[id*="code"]').length;
+        });
+        const hasMCQSubmitButton = hasSubmitById || (submitBtnByText.length > 0);
+        const hasMCQOptions = hasOptionById || (isOnClassPage && !hasMonacoEditor && hasMCQSubmitButton && (hasPracticeLabel || $body.find('[id^="option-"]').length > 0 || $body.find('[data-option]').length > 0));
+
+        const finishButton = $body.find('button').filter((i, el) => {
+          const text = Cypress.$(el).text().trim().toLowerCase();
+          return text === 'finish' || text === 'complete course' || text === 'finish course';
+        });
+
+        if (hasMonacoEditor && hasRunButton && hasSubmitCodeButton) {
+          regressionProgrammingCount++;
+          cy.get('#submit-code-btn', { timeout: 10000 }).then(($btn) => {
+            if ($btn.is(':disabled')) {
+              cy.log('Regression: Submit code disabled – already submitted. Next.');
+            } else {
+              let solutionToUse = solutionCode.javaSolution;
+              if (regressionProgrammingCount === 2) solutionToUse = solutionCode.javaSolution2;
+              else if (regressionProgrammingCount === 3) solutionToUse = solutionCode.javaSolution3;
+              cy.submitCodeSolution(solutionToUse);
+              cy.wait(3000);
+              cy.get('#submit-code-btn', { timeout: 10000 }).should('be.disabled');
+            }
+            cy.clickNextButton();
+          });
+          cy.wait(2000);
+        } else if (hasMCQOptions && hasMCQSubmitButton) {
+          cy.log('Regression: MCQ subtopic – handling options and toast...');
+          cy.get('body').then(($b) => {
+            if ($b.find('#submit-button').length) cy.get('#submit-button', { timeout: 8000 }).should('be.visible');
+            else cy.contains('button', 'Submit', { timeout: 8000 }).should('be.visible');
+          });
+          cy.handleMCQQuestion();
+          cy.wait(2000);
+          cy.clickNextButton();
+          cy.wait(2000);
+        } else if (finishButton.length > 0 && finishButton.is(':visible')) {
+          cy.log('Regression: Finish/Complete – course completed again.');
+          cy.wrap(finishButton).click({ force: true });
+          cy.wait(3000);
+          return false;
+        } else {
+          const nextButton = $body.find('#next-button');
+          if (nextButton.length > 0 && nextButton.is(':visible')) {
+            cy.clickNextButton();
+            cy.wait(2000);
+          } else {
+            cy.log('Regression: No Next button – navigation complete.');
+            return false;
+          }
+        }
+      });
+    }
+
+    cy.log('Regression run complete.');
   });
 });
