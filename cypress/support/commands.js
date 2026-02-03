@@ -49,10 +49,10 @@ Cypress.Commands.add('clickNextButton', () => {
     });
 });
 
-// Reusable: click Completed tab (Courses page) for regression. Override selector in this command if your app uses a different one.
+// Reusable: click Completed tab (Courses page) for regression. Matches "Completed" or "Completed 1" (with count). Override in this command if your app uses a different selector.
 Cypress.Commands.add('clickCompletedTab', () => {
   cy.get('body').then(($body) => {
-    const $btn = $body.find('button').filter((i, el) => Cypress.$(el).text().trim().toLowerCase() === 'completed').first();
+    const $btn = $body.find('button').filter((i, el) => Cypress.$(el).text().trim().toLowerCase().includes('completed')).first();
     if ($btn.length) {
       cy.wrap($btn).scrollIntoView().click({ force: true });
       return;

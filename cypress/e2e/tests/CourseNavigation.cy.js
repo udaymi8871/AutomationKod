@@ -30,11 +30,18 @@ describe('KodNest course flow', () => {
     cy.log('Clicking Completed tab – wait for list to load, then View Syllabus.');
     cy.clickCompletedTab();
     cy.wait(5000); // Allow completed list to load (API: tab=completed)
-    cy.contains('button', 'View Syllabus', { timeout: 20000 })
-      .first()
-      .scrollIntoView()
-      .should('be.visible')
-      .click({ force: true });
+    // View Syllabus: prefer button, fallback to any clickable element with text "View Syllabus"
+    cy.get('body').then(($body) => {
+      const $btn = $body.find('button').filter((i, el) => Cypress.$(el).text().trim().includes('View Syllabus')).first();
+      const $link = $body.find('a').filter((i, el) => Cypress.$(el).text().trim().includes('View Syllabus')).first();
+      if ($btn.length) {
+        cy.wrap($btn).scrollIntoView().should('be.visible').click({ force: true });
+      } else if ($link.length) {
+        cy.wrap($link).scrollIntoView().should('be.visible').click({ force: true });
+      } else {
+        cy.contains('button', 'View Syllabus', { timeout: 20000 }).first().scrollIntoView().should('be.visible').click({ force: true });
+      }
+    });
 
     // Wait for syllabus to load - verify we navigated
     cy.url({ timeout: 15000 }).should('include', '/class/');
